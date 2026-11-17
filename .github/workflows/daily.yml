@@ -1,0 +1,69 @@
+name: Daily Hindi news
+on:
+  schedule:
+    - cron: "30 1 * * *"
+    - cron: "30 3 * * *"
+    - cron: "30 5 * * *"
+    - cron: "30 7 * * *"
+    - cron: "30 11 * * *"
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "Which video to make"
+        type: choice
+        default: short0
+        options:
+          - short0
+          - short1
+          - short2
+          - short3
+          - long
+permissions:
+  contents: write
+concurrency:
+  group: news-video
+  cancel-in-progress: false
+jobs:
+  post:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+      YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+      YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      VISIBILITY: private
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-lohit-deva libraqm0 libfribidi0
+      - run: pip install -r requirements.txt
+      - name: Pick video slot
+        id: slot
+        env:
+          SCHED: ${{ github.event.schedule }}
+          CHOSEN: ${{ github.event.inputs.slot }}
+        run: |
+          case "$SCHED" in
+            "30 1 * * *") S=short0 ;;
+            "30 3 * * *") S=short1 ;;
+            "30 5 * * *") S=short2 ;;
+            "30 7 * * *") S=short3 ;;
+            "30 11 * * *") S=long ;;
+            *) S="${CHOSEN:-short0}" ;;
+          esac
+          echo "slot=$S" >> "$GITHUB_OUTPUT"
+      - run: python main.py ${{ steps.slot.outputs.slot }}
+      - name: Save state
+        if: success()
+        run: |
+          git config user.name "news-bot"
+          git config user.email "news-bot@users.noreply.github.com"
+          git add state.json
+          git diff --cached --quiet || (git commit -m "update state" && git pull --rebase && git push)
